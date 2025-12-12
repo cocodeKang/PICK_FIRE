@@ -8,154 +8,632 @@
 </head>
 
 <body class="bg-slate-50 text-slate-900 min-h-screen">
-  <div class="max-w-4xl mx-auto p-3 md:p-6 space-y-4">
-
-    <!-- 헤더 -->
-    <header class="flex items-center justify-between">
+  <div class="max-w-5xl mx-auto p-4 md:p-8 space-y-4">
+    <header class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
       <div>
-        <h1 class="text-lg md:text-2xl font-bold">대기 명단 (전체 보기)</h1>
-        <p class="text-xs md:text-sm text-slate-600">
-          실시간 동기화 · 이름/번호 정렬 가능
+        <h1 class="text-xl md:text-2xl font-bold">실시간 추첨/호명 명단</h1>
+        <p class="text-sm text-slate-600">
+          PC/모바일에서 동시에 입력하면 즉시 동기화됩니다.
+          <span id="sessionLabel" class="font-medium"></span>
         </p>
       </div>
-      <button id="resetBtn" class="px-3 py-2 rounded bg-rose-600 text-white">
-        전체 초기화
-      </button>
+
+      <div class="flex gap-2 items-center flex-wrap">
+        <button id="resultViewBtn" class="px-3 py-2 rounded-lg bg-slate-900 text-white hover:bg-slate-800">
+          결과 전체화면
+        </button>
+        <button id="resetBtn" class="px-3 py-2 rounded-lg bg-rose-600 text-white hover:bg-rose-700">
+          전체 초기화(새 세션)
+        </button>
+      </div>
     </header>
 
-    <!-- 정렬 버튼 -->
-    <div class="flex gap-2 text-sm">
-      <button id="sortNameBtn" class="px-3 py-2 rounded bg-slate-200">
-        이름 정렬
-      </button>
-      <button id="sortNumberBtn" class="px-3 py-2 rounded bg-slate-200">
-        번호 정렬
-      </button>
-      <span id="pendingCount" class="ml-auto text-slate-600"></span>
-    </div>
-
-    <!-- 대기 명단 (전체 명단 느낌) -->
-    <section class="bg-white rounded-xl border shadow-sm">
-      <div id="pendingList" class="divide-y">
-        <!-- JS로 렌더링 -->
+    <section class="bg-white rounded-2xl shadow-sm border p-4">
+      <div class="grid grid-cols-1 md:grid-cols-12 gap-3 items-end">
+        <div class="md:col-span-4">
+          <label class="block text-sm font-medium mb-1">이름</label>
+          <input id="nameInput" class="w-full px-3 py-2 rounded-lg border" placeholder="예: 홍길동" />
+        </div>
+        <div class="md:col-span-4">
+          <label class="block text-sm font-medium mb-1">번호</label>
+          <input id="numberInput" class="w-full px-3 py-2 rounded-lg border" placeholder="예: 12 (001도 가능)" />
+        </div>
+        <div class="md:col-span-4 flex gap-2">
+          <button id="addBtn" class="flex-1 px-3 py-2 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700">
+            명단 추가
+          </button>
+          <button id="quickClearBtn" class="px-3 py-2 rounded-lg border hover:bg-slate-50">
+            입력칸 비우기
+          </button>
+        </div>
       </div>
+
+      <p id="status" class="text-sm text-slate-600 mt-3"></p>
     </section>
 
-    <!-- 메모장 -->
-    <section class="bg-white rounded-xl border shadow-sm p-3 space-y-3">
-      <h2 class="font-bold">📝 메모 / 🎙 음성녹음</h2>
+    <main class="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <section class="bg-white rounded-2xl shadow-sm border overflow-hidden">
+        <div class="p-4 border-b flex items-center justify-between">
+          <h2 class="font-bold">대기 명단</h2>
+          <span id="pendingCount" class="text-sm text-slate-600"></span>
+        </div>
+        <div class="max-h-[60vh] overflow-auto">
+          <table class="w-full text-sm">
+            <thead class="sticky top-0 bg-slate-100">
+              <tr>
+                <th class="text-left p-2 w-16">순번</th>
 
-      <textarea id="memoText"
-        class="w-full border rounded p-2 text-sm"
-        rows="3"
-        placeholder="진행 중 메모를 입력하세요"></textarea>
+                <!-- ✅ 정렬 클릭 가능 -->
+                <th class="text-left p-2">
+                  <button id="sortNameBtn" class="inline-flex items-center gap-1 font-semibold hover:underline">
+                    이름 <span id="sortNameIcon" class="text-slate-500"></span>
+                  </button>
+                </th>
 
-      <div class="flex gap-2 items-center">
-        <button id="recordBtn" class="px-3 py-2 rounded bg-indigo-600 text-white">
-          🎙 녹음 시작
-        </button>
-        <audio id="audioPlayer" controls class="hidden"></audio>
-      </div>
-    </section>
+                <th class="text-left p-2 w-28">
+                  <button id="sortNumberBtn" class="inline-flex items-center gap-1 font-semibold hover:underline">
+                    번호 <span id="sortNumberIcon" class="text-slate-500"></span>
+                  </button>
+                </th>
 
+                <th class="text-left p-2 w-28">호명</th>
+              </tr>
+            </thead>
+            <tbody id="pendingTbody"></tbody>
+          </table>
+        </div>
+
+        <!-- ✅ 요청: 대기 명단 아래 메모 + 음성녹음 (기존 기능 유지) -->
+        <div class="border-t p-4 space-y-3">
+          <div class="flex items-center justify-between gap-2">
+            <h3 class="font-bold">메모 / 음성녹음</h3>
+            <span id="recStatus" class="text-xs text-slate-500"></span>
+          </div>
+
+          <textarea id="memoText"
+            class="w-full px-3 py-2 rounded-lg border text-sm"
+            rows="3"
+            placeholder="진행 메모를 적어두세요 (현재 기기 로컬에만 저장됩니다)"></textarea>
+
+          <div class="flex flex-wrap gap-2 items-center">
+            <button id="recordBtn" class="px-3 py-2 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700">
+              🎙 녹음 시작
+            </button>
+            <button id="clearAudioBtn" class="px-3 py-2 rounded-lg border hover:bg-slate-50">
+              녹음 삭제
+            </button>
+
+            <audio id="audioPlayer" controls class="w-full md:w-auto hidden"></audio>
+          </div>
+
+          <p class="text-xs text-slate-500">
+            ※ 안내: iPhone Safari는 녹음 권한/동작이 환경에 따라 제한될 수 있어요. (Chrome/Android는 대부분 잘 동작)
+          </p>
+        </div>
+      </section>
+
+      <section class="bg-white rounded-2xl shadow-sm border overflow-hidden">
+        <div class="p-4 border-b flex items-center justify-between">
+          <h2 class="font-bold">완료 명단</h2>
+          <span id="doneCount" class="text-sm text-slate-600"></span>
+        </div>
+        <div class="max-h-[60vh] overflow-auto">
+          <table class="w-full text-sm">
+            <thead class="sticky top-0 bg-slate-100">
+              <tr>
+                <th class="text-left p-2 w-16">순번</th>
+                <th class="text-left p-2">이름</th>
+                <th class="text-left p-2 w-28">번호</th>
+                <th class="text-left p-2 w-28">취소</th>
+              </tr>
+            </thead>
+            <tbody id="doneTbody"></tbody>
+          </table>
+        </div>
+      </section>
+    </main>
   </div>
 
-<script type="module">
-import { initializeApp } from "https://www.gstatic.com/firebasejs/12.6.0/firebase-app.js";
-import { getAuth, signInAnonymously } from "https://www.gstatic.com/firebasejs/12.6.0/firebase-auth.js";
-import {
-  getFirestore, doc, setDoc, getDoc, serverTimestamp,
-  collection, addDoc, onSnapshot, query, orderBy
-} from "https://www.gstatic.com/firebasejs/12.6.0/firebase-firestore.js";
+  <!-- ✅ 결과 전체화면 오버레이 (이름/번호만 크게) -->
+  <div id="resultOverlay" class="fixed inset-0 bg-black/90 text-white hidden z-50">
+    <div class="h-full flex flex-col">
+      <div class="p-3 md:p-4 flex items-center justify-between border-b border-white/10">
+        <div class="text-sm md:text-base opacity-90">
+          결과 화면 · 실시간 연동
+          <span id="resultSessionLabel" class="ml-2 font-semibold"></span>
+        </div>
+        <div class="flex gap-2">
+          <button id="resultSortNameBtn" class="px-3 py-2 rounded-lg bg-white/10 hover:bg-white/20">
+            이름 정렬
+          </button>
+          <button id="resultSortNumberBtn" class="px-3 py-2 rounded-lg bg-white/10 hover:bg-white/20">
+            번호 정렬
+          </button>
+          <button id="exitResultBtn" class="px-3 py-2 rounded-lg bg-rose-500 hover:bg-rose-600">
+            닫기
+          </button>
+        </div>
+      </div>
 
-/* Firebase */
-const firebaseConfig = {
-  apiKey: "AIzaSyDEsSa0HwIZ44HWez0oOTtuNRvnX_eVU9U",
-  authDomain: "pick-gift.firebaseapp.com",
-  projectId: "pick-gift",
-  storageBucket: "pick-gift.firebasestorage.app",
-  messagingSenderId: "372503045664",
-  appId: "1:372503045664:web:b6d31074c9dee9a6dffe45",
-};
-const app = initializeApp(firebaseConfig);
-const auth = getAuth(app);
-const db = getFirestore(app);
-await signInAnonymously(auth);
+      <div class="flex-1 overflow-auto p-3 md:p-6">
+        <div id="resultGrid" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 md:gap-4"></div>
+      </div>
 
-/* 상태 */
-let cachedEntries = [];
-let sortBy = "created";
-let sortDir = "asc";
-
-/* 정렬 */
-function compare(a, b) {
-  const dir = sortDir === "asc" ? 1 : -1;
-  if (sortBy === "name") return a.name.localeCompare(b.name, "ko") * dir;
-  if (sortBy === "number") return (Number(a.number) - Number(b.number)) * dir;
-  return 0;
-}
-
-/* 렌더 */
-function render() {
-  const list = cachedEntries
-    .filter(e => !e.called)
-    .slice()
-    .sort(compare);
-
-  document.getElementById("pendingCount").textContent =
-    `총 ${list.length}명`;
-
-  document.getElementById("pendingList").innerHTML = list.map(e => `
-    <div class="p-3 flex items-center gap-4">
-      <div class="text-2xl font-bold w-32">${e.name}</div>
-      <div class="text-xl text-slate-600">${e.number}</div>
+      <div class="p-3 md:p-4 text-xs md:text-sm opacity-80 border-t border-white/10">
+        팁: 이름/번호 정렬 버튼을 누르면 오름↔내림 토글됩니다.
+      </div>
     </div>
-  `).join("");
-}
+  </div>
 
-/* Firestore 구독 */
-const stateRef = doc(db, "app", "state");
-const snap = await getDoc(stateRef);
-let sessionId = snap.data().currentSessionId;
+  <script type="module">
+    // ===== Firebase SDK (모듈) =====
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/12.6.0/firebase-app.js";
+    import { getAuth, signInAnonymously } from "https://www.gstatic.com/firebasejs/12.6.0/firebase-auth.js";
+    import {
+      getFirestore, doc, setDoc, getDoc, serverTimestamp,
+      collection, addDoc, onSnapshot, query, orderBy, updateDoc
+    } from "https://www.gstatic.com/firebasejs/12.6.0/firebase-firestore.js";
 
-onSnapshot(
-  query(collection(db, "sessions", sessionId, "entries"), orderBy("createdAt")),
-  s => {
-    cachedEntries = s.docs.map(d => d.data());
-    render();
-  }
-);
-
-/* 정렬 버튼 */
-sortNameBtn.onclick = () => {
-  sortBy === "name" ? sortDir = (sortDir === "asc" ? "desc" : "asc") : (sortBy = "name", sortDir = "asc");
-  render();
-};
-sortNumberBtn.onclick = () => {
-  sortBy === "number" ? sortDir = (sortDir === "asc" ? "desc" : "asc") : (sortBy = "number", sortDir = "asc");
-  render();
-};
-
-/* 음성 녹음 */
-let recorder, chunks = [];
-recordBtn.onclick = async () => {
-  if (!recorder || recorder.state === "inactive") {
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    recorder = new MediaRecorder(stream);
-    chunks = [];
-    recorder.ondataavailable = e => chunks.push(e.data);
-    recorder.onstop = () => {
-      const blob = new Blob(chunks, { type: "audio/webm" });
-      audioPlayer.src = URL.createObjectURL(blob);
-      audioPlayer.classList.remove("hidden");
+    // 1) Firebase config
+    const firebaseConfig = {
+      apiKey: "AIzaSyDEsSa0HwIZ44HWez0oOTtuNRvnX_eVU9U",
+      authDomain: "pick-gift.firebaseapp.com",
+      projectId: "pick-gift",
+      storageBucket: "pick-gift.firebasestorage.app",
+      messagingSenderId: "372503045664",
+      appId: "1:372503045664:web:b6d31074c9dee9a6dffe45",
+      measurementId: "G-Y5N46XNLH2"
     };
-    recorder.start();
-    recordBtn.textContent = "⏹ 녹음 중지";
-  } else {
-    recorder.stop();
-    recordBtn.textContent = "🎙 녹음 시작";
-  }
-};
-</script>
+
+    const app = initializeApp(firebaseConfig);
+    const auth = getAuth(app);
+    const db = getFirestore(app);
+
+    // ===== UI =====
+    const $ = (id) => document.getElementById(id);
+    const statusEl = $("status");
+    const sessionLabelEl = $("sessionLabel");
+    const pendingTbody = $("pendingTbody");
+    const doneTbody = $("doneTbody");
+    const pendingCountEl = $("pendingCount");
+    const doneCountEl = $("doneCount");
+
+    const sortNameBtn = $("sortNameBtn");
+    const sortNumberBtn = $("sortNumberBtn");
+    const sortNameIcon = $("sortNameIcon");
+    const sortNumberIcon = $("sortNumberIcon");
+
+    // Result overlay UI
+    const resultOverlay = $("resultOverlay");
+    const resultViewBtn = $("resultViewBtn");
+    const exitResultBtn = $("exitResultBtn");
+    const resultGrid = $("resultGrid");
+    const resultSessionLabel = $("resultSessionLabel");
+    const resultSessionLabelTop = $("resultSessionLabel");
+    const resultSortNameBtn = $("resultSortNameBtn");
+    const resultSortNumberBtn = $("resultSortNumberBtn");
+
+    // Memo/Record UI
+    const memoText = $("memoText");
+    const recordBtn = $("recordBtn");
+    const clearAudioBtn = $("clearAudioBtn");
+    const audioPlayer = $("audioPlayer");
+    const recStatus = $("recStatus");
+
+    function setStatus(msg) { statusEl.textContent = msg || ""; }
+
+    function safeText(s) {
+      return (s ?? "").toString().replace(/[<>&"]/g, (c) => ({
+        "<":"&lt;", ">":"&gt;", "&":"&amp;", '"':"&quot;"
+      }[c]));
+    }
+
+    // ✅ 번호 정규화: "001" -> "1", "01" -> "1"
+    function normalizeNumber(num) {
+      const t = String(num ?? "").trim();
+      if (t === "") return "";
+      const n = Number(t);
+      if (Number.isNaN(n)) return t;
+      return String(Math.trunc(n));
+    }
+
+    function nameKey(name) {
+      return String(name ?? "").trim().toLocaleLowerCase("ko");
+    }
+    function numberKey(num) {
+      const n = Number(normalizeNumber(num));
+      return Number.isNaN(n) ? Infinity : n;
+    }
+
+    // ===== 정렬 상태 =====
+    const sortState = { sortBy: "created", sortDir: "asc" };
+
+    function setSort(by) {
+      if (sortState.sortBy === by) {
+        sortState.sortDir = (sortState.sortDir === "asc") ? "desc" : "asc";
+      } else {
+        sortState.sortBy = by;
+        sortState.sortDir = "asc";
+      }
+      updateSortIcons();
+      renderTableRows(cachedEntries);
+      renderResultView(cachedEntries);
+    }
+
+    function updateSortIcons() {
+      sortNameIcon.textContent = "";
+      sortNumberIcon.textContent = "";
+      if (sortState.sortBy === "name") sortNameIcon.textContent = (sortState.sortDir === "asc" ? "▲" : "▼");
+      if (sortState.sortBy === "number") sortNumberIcon.textContent = (sortState.sortDir === "asc" ? "▲" : "▼");
+    }
+
+    function compareEntries(a, b) {
+      const dir = (sortState.sortDir === "asc") ? 1 : -1;
+
+      if (sortState.sortBy === "name") {
+        const aa = nameKey(a.name);
+        const bb = nameKey(b.name);
+        if (aa < bb) return -1 * dir;
+        if (aa > bb) return  1 * dir;
+        return (numberKey(a.number) - numberKey(b.number)) * dir;
+      }
+
+      if (sortState.sortBy === "number") {
+        const aa = numberKey(a.number);
+        const bb = numberKey(b.number);
+        if (aa !== bb) return (aa - bb) * dir;
+        const na = nameKey(a.name);
+        const nb = nameKey(b.name);
+        if (na < nb) return -1 * dir;
+        if (na > nb) return  1 * dir;
+        return 0;
+      }
+
+      const ta = a.createdAt?.seconds ?? 0;
+      const tb = b.createdAt?.seconds ?? 0;
+      if (ta !== tb) return (ta - tb);
+      return 0;
+    }
+
+    // ===== 데이터 구조 =====
+    const stateRef = doc(db, "app", "state");
+    let currentSessionId = null;
+    let unsubscribeEntries = null;
+
+    // ✅ entries 캐시 (중복 체크/재렌더/정렬)
+    let cachedEntries = [];
+
+    async function ensureState() {
+      const snap = await getDoc(stateRef);
+      if (!snap.exists() || !snap.data()?.currentSessionId) {
+        const newId = crypto.randomUUID();
+        await setDoc(doc(db, "sessions", newId), { createdAt: serverTimestamp() });
+        await setDoc(stateRef, { currentSessionId: newId, updatedAt: serverTimestamp() });
+      }
+    }
+
+    function renderTableRows(entries) {
+      const pending = [];
+      const done = [];
+      entries.forEach(e => (e.called ? done : pending).push(e));
+
+      const pendingSorted = pending.slice().sort(compareEntries);
+      const doneSorted = done.slice().sort(compareEntries);
+
+      pendingTbody.innerHTML = pendingSorted.map((e, idx) => `
+        <tr class="border-b last:border-b-0">
+          <td class="p-2 text-slate-500">${idx + 1}</td>
+          <td class="p-2 font-medium">${safeText(e.name)}</td>
+          <td class="p-2">${safeText(e.number)}</td>
+          <td class="p-2">
+            <button data-id="${e.id}" class="callBtn px-2 py-1 rounded-md bg-emerald-600 text-white hover:bg-emerald-700">
+              완료
+            </button>
+          </td>
+        </tr>
+      `).join("");
+
+      doneTbody.innerHTML = doneSorted.map((e, idx) => `
+        <tr class="border-b last:border-b-0 opacity-90">
+          <td class="p-2 text-slate-500">${idx + 1}</td>
+          <td class="p-2 font-medium line-through">${safeText(e.name)}</td>
+          <td class="p-2 line-through">${safeText(e.number)}</td>
+          <td class="p-2">
+            <button data-id="${e.id}" class="undoBtn px-2 py-1 rounded-md border hover:bg-slate-50">
+              되돌리기
+            </button>
+          </td>
+        </tr>
+      `).join("");
+
+      pendingCountEl.textContent = `총 ${pending.length}명`;
+      doneCountEl.textContent = `총 ${done.length}명`;
+
+      wireRowButtons();
+    }
+
+    function renderResultView(entries) {
+      if (resultOverlay.classList.contains("hidden")) return;
+
+      const pendingOnly = entries.filter(e => !e.called);
+      const sorted = pendingOnly.slice().sort(compareEntries);
+
+      resultGrid.innerHTML = sorted.map((e) => `
+        <div class="rounded-2xl bg-white/10 border border-white/10 p-4 md:p-5">
+          <div class="text-2xl md:text-4xl font-extrabold tracking-tight">
+            ${safeText(e.name)}
+          </div>
+          <div class="mt-2 text-xl md:text-3xl font-bold opacity-90">
+            ${safeText(e.number)}
+          </div>
+        </div>
+      `).join("");
+    }
+
+    function wireRowButtons() {
+      pendingTbody.querySelectorAll(".callBtn").forEach(btn => {
+        btn.addEventListener("click", async () => {
+          const id = btn.dataset.id;
+          await updateDoc(doc(db, "sessions", currentSessionId, "entries", id), {
+            called: true,
+            calledAt: serverTimestamp()
+          });
+        });
+      });
+      doneTbody.querySelectorAll(".undoBtn").forEach(btn => {
+        btn.addEventListener("click", async () => {
+          const id = btn.dataset.id;
+          await updateDoc(doc(db, "sessions", currentSessionId, "entries", id), {
+            called: false,
+            calledAt: null
+          });
+        });
+      });
+    }
+
+    function subscribeEntries(sessionId) {
+      if (unsubscribeEntries) unsubscribeEntries();
+
+      const entriesRef = collection(db, "sessions", sessionId, "entries");
+      const q = query(entriesRef, orderBy("createdAt", "asc"));
+
+      unsubscribeEntries = onSnapshot(q, (snap) => {
+        const entries = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+        cachedEntries = entries;
+
+        renderTableRows(entries);
+        renderResultView(entries);
+
+        setStatus(`연결됨 · 세션 ${sessionId.slice(0, 8)} · ${new Date().toLocaleString()}`);
+      }, (err) => {
+        console.error(err);
+        setStatus("오류: Firestore 연결 실패. 규칙/권한/네트워크를 확인하세요.");
+      });
+    }
+
+    async function createNewSessionAndSwitch() {
+      const newId = crypto.randomUUID();
+      await setDoc(doc(db, "sessions", newId), { createdAt: serverTimestamp() });
+      await setDoc(stateRef, { currentSessionId: newId, updatedAt: serverTimestamp() }, { merge: true });
+    }
+
+    // ===== 기존 이벤트 =====
+    $("addBtn").addEventListener("click", async () => {
+      const name = $("nameInput").value.trim();
+      const rawNumber = $("numberInput").value.trim();
+
+      if (!name || !rawNumber) {
+        alert("이름/번호를 입력해 주세요.");
+        return;
+      }
+
+      const number = normalizeNumber(rawNumber);
+
+      const isDuplicate = cachedEntries.some(e =>
+        (e.name ?? "").trim() === name &&
+        normalizeNumber(e.number) === number
+      );
+
+      if (isDuplicate) {
+        alert("이미 입력되었습니다.");
+        return;
+      }
+
+      const entriesRef = collection(db, "sessions", currentSessionId, "entries");
+      await addDoc(entriesRef, {
+        name,
+        number,
+        called: false,
+        createdAt: serverTimestamp(),
+        calledAt: null,
+      });
+
+      $("nameInput").value = "";
+      $("numberInput").value = "";
+      $("nameInput").focus();
+    });
+
+    $("quickClearBtn").addEventListener("click", () => {
+      $("nameInput").value = "";
+      $("numberInput").value = "";
+      $("nameInput").focus();
+    });
+
+    $("resetBtn").addEventListener("click", async () => {
+      const ok = confirm("정말 '전체 초기화(새 세션)' 할까요?\n(기존 데이터는 삭제되지 않고, 새 명단으로 전환됩니다.)");
+      if (!ok) return;
+      await createNewSessionAndSwitch();
+    });
+
+    // 정렬 버튼
+    sortNameBtn.addEventListener("click", () => setSort("name"));
+    sortNumberBtn.addEventListener("click", () => setSort("number"));
+
+    // 결과 전체화면
+    resultViewBtn.addEventListener("click", async () => {
+      const el = resultOverlay;
+      el.classList.remove("hidden");
+      resultSessionLabel.textContent = currentSessionId ? `· ${currentSessionId.slice(0, 8)}` : "";
+      try { if (el.requestFullscreen) await el.requestFullscreen(); } catch (_) {}
+      renderResultView(cachedEntries);
+    });
+
+    resultSortNameBtn.addEventListener("click", () => setSort("name"));
+    resultSortNumberBtn.addEventListener("click", () => setSort("number"));
+
+    exitResultBtn.addEventListener("click", async () => {
+      resultOverlay.classList.add("hidden");
+      try { if (document.fullscreenElement) await document.exitFullscreen(); } catch (_) {}
+    });
+
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "Escape" && !resultOverlay.classList.contains("hidden")) {
+        exitResultBtn.click();
+      }
+    });
+
+    // ===== ✅ 추가: 메모 로컬 저장 (새로고침 유지) =====
+    // 세션별로 메모를 따로 저장
+    function memoKey(sessionId) { return `memo_${sessionId}`; }
+    function audioKey(sessionId) { return `audio_${sessionId}`; }
+
+    function loadMemo() {
+      if (!currentSessionId) return;
+      const saved = localStorage.getItem(memoKey(currentSessionId));
+      if (saved != null) memoText.value = saved;
+    }
+    function saveMemo() {
+      if (!currentSessionId) return;
+      localStorage.setItem(memoKey(currentSessionId), memoText.value ?? "");
+    }
+    memoText.addEventListener("input", () => saveMemo());
+
+    // ===== ✅ 추가: 음성 녹음 (기기 로컬) =====
+    let recorder = null;
+    let chunks = [];
+    let currentStream = null;
+
+    function setRecStatus(text) { recStatus.textContent = text || ""; }
+
+    function stopTracks() {
+      if (currentStream) {
+        currentStream.getTracks().forEach(t => t.stop());
+        currentStream = null;
+      }
+    }
+
+    async function startRecording() {
+      if (!navigator.mediaDevices?.getUserMedia) {
+        alert("이 브라우저는 음성 녹음을 지원하지 않습니다.");
+        return;
+      }
+
+      currentStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      recorder = new MediaRecorder(currentStream);
+      chunks = [];
+
+      recorder.ondataavailable = (e) => { if (e.data?.size) chunks.push(e.data); };
+      recorder.onstop = async () => {
+        stopTracks();
+        const blob = new Blob(chunks, { type: recorder.mimeType || "audio/webm" });
+        const url = URL.createObjectURL(blob);
+        audioPlayer.src = url;
+        audioPlayer.classList.remove("hidden");
+
+        // ✅ 로컬 저장(브라우저에 따라 용량 제한 있음) - 원치 않으면 제거 가능
+        if (currentSessionId) {
+          try {
+            const base64 = await blobToBase64(blob);
+            localStorage.setItem(audioKey(currentSessionId), base64);
+          } catch (e) {
+            // 용량 초과 시 저장 실패할 수 있음
+            console.warn("오디오 로컬 저장 실패(용량 제한 가능):", e);
+          }
+        }
+
+        setRecStatus("녹음 완료");
+        recordBtn.textContent = "🎙 녹음 시작";
+      };
+
+      recorder.start();
+      setRecStatus("녹음 중...");
+      recordBtn.textContent = "⏹ 녹음 중지";
+    }
+
+    function stopRecording() {
+      if (recorder && recorder.state === "recording") {
+        recorder.stop();
+      }
+    }
+
+    recordBtn.addEventListener("click", async () => {
+      try {
+        if (!recorder || recorder.state === "inactive") {
+          await startRecording();
+        } else if (recorder.state === "recording") {
+          stopRecording();
+        }
+      } catch (err) {
+        console.error(err);
+        setRecStatus("녹음 실패(권한/브라우저 확인)");
+        recordBtn.textContent = "🎙 녹음 시작";
+        stopTracks();
+      }
+    });
+
+    clearAudioBtn.addEventListener("click", () => {
+      audioPlayer.pause();
+      audioPlayer.src = "";
+      audioPlayer.classList.add("hidden");
+      setRecStatus("");
+
+      if (currentSessionId) {
+        localStorage.removeItem(audioKey(currentSessionId));
+      }
+    });
+
+    async function blobToBase64(blob) {
+      return await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onerror = reject;
+        reader.onload = () => resolve(reader.result);
+        reader.readAsDataURL(blob);
+      });
+    }
+
+    function loadAudio() {
+      if (!currentSessionId) return;
+      const saved = localStorage.getItem(audioKey(currentSessionId));
+      if (!saved) return;
+      audioPlayer.src = saved;
+      audioPlayer.classList.remove("hidden");
+      setRecStatus("저장된 녹음 불러옴");
+    }
+
+    // ===== 시작 =====
+    setStatus("로그인/연결 중...");
+    await signInAnonymously(auth);
+    await ensureState();
+
+    onSnapshot(stateRef, (snap) => {
+      const data = snap.data();
+      if (!data?.currentSessionId) return;
+
+      const nextSessionId = data.currentSessionId;
+      if (nextSessionId !== currentSessionId) {
+        currentSessionId = nextSessionId;
+        sessionLabelEl.textContent = `· 현재 세션: ${currentSessionId.slice(0, 8)}`;
+        resultSessionLabel.textContent = `· ${currentSessionId.slice(0, 8)}`;
+
+        // ✅ 세션 바뀌면 메모/오디오도 해당 세션 것으로 로딩
+        loadMemo();
+        loadAudio();
+
+        subscribeEntries(currentSessionId);
+      }
+    });
+
+    updateSortIcons();
+  </script>
 </body>
 </html>
