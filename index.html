@@ -1,0 +1,286 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>실시간 추첨/호명 명단</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+
+<body class="bg-slate-50 text-slate-900 min-h-screen">
+  <div class="max-w-5xl mx-auto p-4 md:p-8 space-y-4">
+    <header class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+      <div>
+        <h1 class="text-xl md:text-2xl font-bold">실시간 추첨/호명 명단</h1>
+        <p class="text-sm text-slate-600">
+          PC/모바일에서 동시에 입력하면 즉시 동기화됩니다.
+          <span id="sessionLabel" class="font-medium"></span>
+        </p>
+      </div>
+
+      <div class="flex gap-2 items-center">
+        <button id="resetBtn" class="px-3 py-2 rounded-lg bg-rose-600 text-white hover:bg-rose-700">
+          전체 초기화(새 세션)
+        </button>
+      </div>
+    </header>
+
+    <section class="bg-white rounded-2xl shadow-sm border p-4">
+      <div class="grid grid-cols-1 md:grid-cols-12 gap-3 items-end">
+        <div class="md:col-span-4">
+          <label class="block text-sm font-medium mb-1">이름</label>
+          <input id="nameInput" class="w-full px-3 py-2 rounded-lg border" placeholder="예: 홍길동" />
+        </div>
+        <div class="md:col-span-4">
+          <label class="block text-sm font-medium mb-1">번호</label>
+          <input id="numberInput" class="w-full px-3 py-2 rounded-lg border" placeholder="예: 12" />
+        </div>
+        <div class="md:col-span-4 flex gap-2">
+          <button id="addBtn" class="flex-1 px-3 py-2 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700">
+            명단 추가
+          </button>
+          <button id="quickClearBtn" class="px-3 py-2 rounded-lg border hover:bg-slate-50">
+            입력칸 비우기
+          </button>
+        </div>
+      </div>
+
+      <p id="status" class="text-sm text-slate-600 mt-3"></p>
+    </section>
+
+    <main class="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <section class="bg-white rounded-2xl shadow-sm border overflow-hidden">
+        <div class="p-4 border-b flex items-center justify-between">
+          <h2 class="font-bold">대기 명단</h2>
+          <span id="pendingCount" class="text-sm text-slate-600"></span>
+        </div>
+        <div class="max-h-[60vh] overflow-auto">
+          <table class="w-full text-sm">
+            <thead class="sticky top-0 bg-slate-100">
+              <tr>
+                <th class="text-left p-2 w-16">순번</th>
+                <th class="text-left p-2">이름</th>
+                <th class="text-left p-2 w-24">번호</th>
+                <th class="text-left p-2 w-28">호명</th>
+              </tr>
+            </thead>
+            <tbody id="pendingTbody"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="bg-white rounded-2xl shadow-sm border overflow-hidden">
+        <div class="p-4 border-b flex items-center justify-between">
+          <h2 class="font-bold">완료 명단</h2>
+          <span id="doneCount" class="text-sm text-slate-600"></span>
+        </div>
+        <div class="max-h-[60vh] overflow-auto">
+          <table class="w-full text-sm">
+            <thead class="sticky top-0 bg-slate-100">
+              <tr>
+                <th class="text-left p-2 w-16">순번</th>
+                <th class="text-left p-2">이름</th>
+                <th class="text-left p-2 w-24">번호</th>
+                <th class="text-left p-2 w-28">취소</th>
+              </tr>
+            </thead>
+            <tbody id="doneTbody"></tbody>
+          </table>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script type="module">
+    // ===== Firebase SDK (모듈) =====
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/12.6.0/firebase-app.js";
+    import { getAuth, signInAnonymously } from "https://www.gstatic.com/firebasejs/12.6.0/firebase-auth.js";
+    import {
+      getFirestore, doc, setDoc, getDoc, serverTimestamp,
+      collection, addDoc, onSnapshot, query, orderBy, updateDoc
+    } from "https://www.gstatic.com/firebasejs/12.6.0/firebase-firestore.js";
+
+    // 1) 여기에 본인 Firebase config 붙여넣기
+    const firebaseConfig = {
+      apiKey: "YOUR_API_KEY",
+      authDomain: "YOUR_PROJECT.firebaseapp.com",
+      projectId: "YOUR_PROJECT_ID",
+      storageBucket: "YOUR_PROJECT.appspot.com",
+      messagingSenderId: "YOUR_SENDER_ID",
+      appId: "YOUR_APP_ID",
+    };
+
+    const app = initializeApp(firebaseConfig);
+    const auth = getAuth(app);
+    const db = getFirestore(app);
+
+    // ===== UI =====
+    const $ = (id) => document.getElementById(id);
+    const statusEl = $("status");
+    const sessionLabelEl = $("sessionLabel");
+    const pendingTbody = $("pendingTbody");
+    const doneTbody = $("doneTbody");
+    const pendingCountEl = $("pendingCount");
+    const doneCountEl = $("doneCount");
+
+    function setStatus(msg) { statusEl.textContent = msg || ""; }
+
+    function safeText(s) {
+      return (s ?? "").toString().replace(/[<>&"]/g, (c) => ({
+        "<":"&lt;", ">":"&gt;", "&":"&amp;", '"':"&quot;"
+      }[c]));
+    }
+
+    // ===== 데이터 구조 =====
+    // app/state : { currentSessionId, updatedAt }
+    // sessions/{sessionId} : { createdAt }
+    // sessions/{sessionId}/entries/{entryId} : { name, number, called, createdAt, calledAt }
+
+    const stateRef = doc(db, "app", "state");
+    let currentSessionId = null;
+    let unsubscribeEntries = null;
+
+    async function ensureState() {
+      const snap = await getDoc(stateRef);
+      if (!snap.exists() || !snap.data()?.currentSessionId) {
+        const newId = crypto.randomUUID();
+        await setDoc(doc(db, "sessions", newId), { createdAt: serverTimestamp() });
+        await setDoc(stateRef, { currentSessionId: newId, updatedAt: serverTimestamp() });
+      }
+    }
+
+    function renderTableRows(entries) {
+      // createdAt 오름차순(입력 순서 유지)
+      const pending = [];
+      const done = [];
+      entries.forEach(e => (e.called ? done : pending).push(e));
+
+      pendingTbody.innerHTML = pending.map((e, idx) => `
+        <tr class="border-b last:border-b-0">
+          <td class="p-2 text-slate-500">${idx + 1}</td>
+          <td class="p-2 font-medium">${safeText(e.name)}</td>
+          <td class="p-2">${safeText(e.number)}</td>
+          <td class="p-2">
+            <button data-id="${e.id}" class="callBtn px-2 py-1 rounded-md bg-emerald-600 text-white hover:bg-emerald-700">
+              완료
+            </button>
+          </td>
+        </tr>
+      `).join("");
+
+      doneTbody.innerHTML = done.map((e, idx) => `
+        <tr class="border-b last:border-b-0 opacity-90">
+          <td class="p-2 text-slate-500">${idx + 1}</td>
+          <td class="p-2 font-medium line-through">${safeText(e.name)}</td>
+          <td class="p-2 line-through">${safeText(e.number)}</td>
+          <td class="p-2">
+            <button data-id="${e.id}" class="undoBtn px-2 py-1 rounded-md border hover:bg-slate-50">
+              되돌리기
+            </button>
+          </td>
+        </tr>
+      `).join("");
+
+      pendingCountEl.textContent = `총 ${pending.length}명`;
+      doneCountEl.textContent = `총 ${done.length}명`;
+    }
+
+    function wireRowButtons() {
+      pendingTbody.querySelectorAll(".callBtn").forEach(btn => {
+        btn.addEventListener("click", async () => {
+          const id = btn.dataset.id;
+          await updateDoc(doc(db, "sessions", currentSessionId, "entries", id), {
+            called: true,
+            calledAt: serverTimestamp()
+          });
+        });
+      });
+      doneTbody.querySelectorAll(".undoBtn").forEach(btn => {
+        btn.addEventListener("click", async () => {
+          const id = btn.dataset.id;
+          await updateDoc(doc(db, "sessions", currentSessionId, "entries", id), {
+            called: false,
+            calledAt: null
+          });
+        });
+      });
+    }
+
+    function subscribeEntries(sessionId) {
+      if (unsubscribeEntries) unsubscribeEntries();
+
+      const entriesRef = collection(db, "sessions", sessionId, "entries");
+      const q = query(entriesRef, orderBy("createdAt", "asc"));
+
+      unsubscribeEntries = onSnapshot(q, (snap) => {
+        const entries = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+        renderTableRows(entries);
+        wireRowButtons();
+        setStatus(`연결됨 · 세션 ${sessionId.slice(0, 8)} · ${new Date().toLocaleString()}`);
+      }, (err) => {
+        console.error(err);
+        setStatus("오류: Firestore 연결 실패. 규칙/권한/네트워크를 확인하세요.");
+      });
+    }
+
+    async function createNewSessionAndSwitch() {
+      // “초기화” = 새 세션 생성 후 state.currentSessionId를 바꿈
+      const newId = crypto.randomUUID();
+      await setDoc(doc(db, "sessions", newId), { createdAt: serverTimestamp() });
+      await setDoc(stateRef, { currentSessionId: newId, updatedAt: serverTimestamp() }, { merge: true });
+    }
+
+    // ===== 이벤트 =====
+    $("addBtn").addEventListener("click", async () => {
+      const name = $("nameInput").value.trim();
+      const number = $("numberInput").value.trim();
+      if (!name || !number) { alert("이름/번호를 입력해 주세요."); return; }
+
+      const entriesRef = collection(db, "sessions", currentSessionId, "entries");
+      await addDoc(entriesRef, {
+        name, number,
+        called: false,
+        createdAt: serverTimestamp(),
+        calledAt: null,
+      });
+
+      $("nameInput").value = "";
+      $("numberInput").value = "";
+      $("nameInput").focus();
+    });
+
+    $("quickClearBtn").addEventListener("click", () => {
+      $("nameInput").value = "";
+      $("numberInput").value = "";
+      $("nameInput").focus();
+    });
+
+    $("resetBtn").addEventListener("click", async () => {
+      const ok = confirm("정말 '전체 초기화(새 세션)' 할까요?\n(기존 데이터는 삭제되지 않고, 새 명단으로 전환됩니다.)");
+      if (!ok) return;
+      await createNewSessionAndSwitch();
+    });
+
+    // ===== 시작 =====
+    setStatus("로그인/연결 중...");
+
+    // 익명 로그인 (권장)
+    await signInAnonymously(auth);
+
+    await ensureState();
+
+    // state 문서를 실시간으로 구독 → 새로고침/다른 기기에서도 동일 세션 유지
+    onSnapshot(stateRef, (snap) => {
+      const data = snap.data();
+      if (!data?.currentSessionId) return;
+
+      const nextSessionId = data.currentSessionId;
+      if (nextSessionId !== currentSessionId) {
+        currentSessionId = nextSessionId;
+        sessionLabelEl.textContent = `· 현재 세션: ${currentSessionId.slice(0, 8)}`;
+        subscribeEntries(currentSessionId);
+      }
+    });
+  </script>
+</body>
+</html>
