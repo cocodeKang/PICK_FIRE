@@ -33,7 +33,7 @@
         </div>
         <div class="md:col-span-4">
           <label class="block text-sm font-medium mb-1">번호</label>
-          <input id="numberInput" class="w-full px-3 py-2 rounded-lg border" placeholder="예: 12" />
+          <input id="numberInput" class="w-full px-3 py-2 rounded-lg border" placeholder="예: 12 (001도 가능)" />
         </div>
         <div class="md:col-span-4 flex gap-2">
           <button id="addBtn" class="flex-1 px-3 py-2 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700">
@@ -100,15 +100,15 @@
       collection, addDoc, onSnapshot, query, orderBy, updateDoc
     } from "https://www.gstatic.com/firebasejs/12.6.0/firebase-firestore.js";
 
-    // 1) 여기에 본인 Firebase config 붙여넣기
+    // 1) Firebase config
     const firebaseConfig = {
       apiKey: "AIzaSyDEsSa0HwIZ44HWez0oOTtuNRvnX_eVU9U",
-    authDomain: "pick-gift.firebaseapp.com",
-    projectId: "pick-gift",
-    storageBucket: "pick-gift.firebasestorage.app",
-    messagingSenderId: "372503045664",
-    appId: "1:372503045664:web:b6d31074c9dee9a6dffe45",
-    measurementId: "G-Y5N46XNLH2"
+      authDomain: "pick-gift.firebaseapp.com",
+      projectId: "pick-gift",
+      storageBucket: "pick-gift.firebasestorage.app",
+      messagingSenderId: "372503045664",
+      appId: "1:372503045664:web:b6d31074c9dee9a6dffe45",
+      measurementId: "G-Y5N46XNLH2"
     };
 
     const app = initializeApp(firebaseConfig);
@@ -132,6 +132,15 @@
       }[c]));
     }
 
+    // ✅ 번호 정규화: "001" -> "1", "01" -> "1"
+    function normalizeNumber(num) {
+      const t = String(num ?? "").trim();
+      if (t === "") return "";
+      const n = Number(t);
+      if (Number.isNaN(n)) return t;       // 숫자가 아니면 원문 유지
+      return String(Math.trunc(n));         // 정수 문자열로
+    }
+
     // ===== 데이터 구조 =====
     // app/state : { currentSessionId, updatedAt }
     // sessions/{sessionId} : { createdAt }
@@ -140,6 +149,9 @@
     const stateRef = doc(db, "app", "state");
     let currentSessionId = null;
     let unsubscribeEntries = null;
+
+    // ✅ 실시간으로 불러온 entries 캐시 (중복 체크용)
+    let cachedEntries = [];
 
     async function ensureState() {
       const snap = await getDoc(stateRef);
@@ -151,7 +163,6 @@
     }
 
     function renderTableRows(entries) {
-      // createdAt 오름차순(입력 순서 유지)
       const pending = [];
       const done = [];
       entries.forEach(e => (e.called ? done : pending).push(e));
@@ -215,6 +226,10 @@
 
       unsubscribeEntries = onSnapshot(q, (snap) => {
         const entries = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+
+        // ✅ 캐시에 저장 (중복 체크용)
+        cachedEntries = entries;
+
         renderTableRows(entries);
         wireRowButtons();
         setStatus(`연결됨 · 세션 ${sessionId.slice(0, 8)} · ${new Date().toLocaleString()}`);
@@ -225,7 +240,6 @@
     }
 
     async function createNewSessionAndSwitch() {
-      // “초기화” = 새 세션 생성 후 state.currentSessionId를 바꿈
       const newId = crypto.randomUUID();
       await setDoc(doc(db, "sessions", newId), { createdAt: serverTimestamp() });
       await setDoc(stateRef, { currentSessionId: newId, updatedAt: serverTimestamp() }, { merge: true });
@@ -234,12 +248,30 @@
     // ===== 이벤트 =====
     $("addBtn").addEventListener("click", async () => {
       const name = $("nameInput").value.trim();
-      const number = $("numberInput").value.trim();
-      if (!name || !number) { alert("이름/번호를 입력해 주세요."); return; }
+      const rawNumber = $("numberInput").value.trim();
+
+      if (!name || !rawNumber) {
+        alert("이름/번호를 입력해 주세요.");
+        return;
+      }
+
+      const number = normalizeNumber(rawNumber);
+
+      // ✅ (이름 + 정규화번호) 중복 체크
+      const isDuplicate = cachedEntries.some(e =>
+        (e.name ?? "").trim() === name &&
+        normalizeNumber(e.number) === number
+      );
+
+      if (isDuplicate) {
+        alert("이미 입력되었습니다.");
+        return;
+      }
 
       const entriesRef = collection(db, "sessions", currentSessionId, "entries");
       await addDoc(entriesRef, {
-        name, number,
+        name,
+        number, // ✅ 정규화된 값으로 저장
         called: false,
         createdAt: serverTimestamp(),
         calledAt: null,
